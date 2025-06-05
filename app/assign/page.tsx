@@ -10,6 +10,7 @@ type Allocation = {
   project_id: string;
   start_date: string;
   end_date: string;
+  allocation_percent?: number; // <-- Fix: use allocation_percent
   resources?: { name: string } | { name: string }[] | null;
   projects?: { name: string } | { name: string }[] | null;
 };
@@ -25,6 +26,7 @@ export default function AssignAllocationPage() {
   const [selectedProject, setSelectedProject] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
+  const [percentage, setPercentage] = useState<number | "">(100); // <-- Default to 100
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -35,10 +37,14 @@ export default function AssignAllocationPage() {
   const [editProject, setEditProject] = useState("");
   const [editStart, setEditStart] = useState("");
   const [editEnd, setEditEnd] = useState("");
+  const [editPercentage, setEditPercentage] = useState<number | "">(""); // for editing
 
   // Sorting
   const [sortKey, setSortKey] = useState<SortKey>("resource");
   const [sortDir, setSortDir] = useState<SortDirection>("asc");
+
+  // Search state
+  const [search, setSearch] = useState(""); // <-- Add search state
 
   useEffect(() => {
     const fetchData = async () => {
@@ -48,7 +54,7 @@ export default function AssignAllocationPage() {
       setProjects(projData || []);
       const { data: allocData } = await supabase
         .from("allocations")
-        .select("id, resource_id, project_id, start_date, end_date, resources(name), projects(name)");
+        .select("id, resource_id, project_id, start_date, end_date, allocation_percent, resources(name), projects(name)");
       setAllocations(allocData ?? []);
     };
     fetchData();
@@ -59,7 +65,7 @@ export default function AssignAllocationPage() {
     setError(null);
     setSuccess(null);
 
-    if (!selectedResource || !selectedProject || !startDate || !endDate) {
+    if (!selectedResource || !selectedProject || !startDate || !endDate || percentage === "") {
       setError("Please fill in all fields.");
       return;
     }
@@ -70,7 +76,8 @@ export default function AssignAllocationPage() {
         resource_id: selectedResource,
         project_id: selectedProject,
         start_date: startDate,
-        end_date: endDate
+        end_date: endDate,
+        allocation_percent: Number(percentage) // <-- Fix: use allocation_percent
       }
     ]);
     setLoading(false);
@@ -83,10 +90,11 @@ export default function AssignAllocationPage() {
       setSelectedProject("");
       setStartDate("");
       setEndDate("");
+      setPercentage(""); // Reset percentage
       // Refresh allocations
       const { data: allocData } = await supabase
         .from("allocations")
-        .select("id, resource_id, project_id, start_date, end_date, resources(name), projects(name)");
+        .select("id, resource_id, project_id, start_date, end_date, allocation_percent, resources(name), projects(name)");
       setAllocations(allocData ?? []);
     }
   };
@@ -98,6 +106,7 @@ export default function AssignAllocationPage() {
     setEditProject(alloc.project_id);
     setEditStart(alloc.start_date);
     setEditEnd(alloc.end_date);
+    setEditPercentage(alloc.allocation_percent ?? ""); // <-- Fix: use allocation_percent
   };
 
   const cancelEdit = () => {
@@ -106,10 +115,11 @@ export default function AssignAllocationPage() {
     setEditProject("");
     setEditStart("");
     setEditEnd("");
+    setEditPercentage("");
   };
 
   const saveEdit = async () => {
-    if (!editId || !editResource || !editProject || !editStart || !editEnd) return;
+    if (!editId || !editResource || !editProject || !editStart || !editEnd || editPercentage === "") return;
     setLoading(true);
     const { error } = await supabase
       .from("allocations")
@@ -117,7 +127,8 @@ export default function AssignAllocationPage() {
         resource_id: editResource,
         project_id: editProject,
         start_date: editStart,
-        end_date: editEnd
+        end_date: editEnd,
+        allocation_percent: Number(editPercentage) // <-- Fix: use allocation_percent
       })
       .eq("id", editId);
     setLoading(false);
@@ -130,7 +141,7 @@ export default function AssignAllocationPage() {
       // Refresh allocations
       const { data: allocData } = await supabase
         .from("allocations")
-        .select("id, resource_id, project_id, start_date, end_date, resources(name), projects(name)");
+        .select("id, resource_id, project_id, start_date, end_date, allocation_percent, resources(name), projects(name)");
       setAllocations(allocData ?? []);
     }
   };
@@ -146,7 +157,7 @@ export default function AssignAllocationPage() {
       // Refresh allocations
       const { data: allocData } = await supabase
         .from("allocations")
-        .select("id, resource_id, project_id, start_date, end_date, resources(name), projects(name)");
+        .select("id, resource_id, project_id, start_date, end_date, allocation_percent, resources(name), projects(name)");
       setAllocations(allocData ?? []);
     }
   };
@@ -178,6 +189,22 @@ export default function AssignAllocationPage() {
     }
   };
 
+  // Filter allocations by search (any column: resource, project, start_date, end_date)
+  const filteredAllocations = sortedAllocations.filter(alloc => {
+    const resourceName = Array.isArray(alloc.resources)
+      ? alloc.resources[0]?.name || ""
+      : alloc.resources?.name || "";
+    const projectName = Array.isArray(alloc.projects)
+      ? alloc.projects[0]?.name || ""
+      : alloc.projects?.name || "";
+    return (
+      resourceName.toLowerCase().includes(search.toLowerCase()) ||
+      projectName.toLowerCase().includes(search.toLowerCase()) ||
+      (alloc.start_date || "").toLowerCase().includes(search.toLowerCase()) ||
+      (alloc.end_date || "").toLowerCase().includes(search.toLowerCase())
+    );
+  });
+
   return (
     <div style={{
       display: "flex",
@@ -205,6 +232,7 @@ export default function AssignAllocationPage() {
           fontSize: 32,
           textShadow: "0 2px 8px #e0e7ff"
         }}>Assign Resource to Project</h2>
+
         <form
           onSubmit={handleAssign}
           style={{
@@ -345,6 +373,38 @@ export default function AssignAllocationPage() {
               required
             />
           </label>
+          <label style={{
+            fontWeight: 600,
+            color: mainBlue,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "flex-start",
+            gap: 6
+          }}>
+            % Allocation:
+            <input
+              type="number"
+              min={1}
+              max={100}
+              value={percentage}
+              onChange={e => setPercentage(e.target.value === "" ? "" : Number(e.target.value))}
+              style={{
+                minWidth: 0,
+                width: 120,
+                padding: 10,
+                borderRadius: 8,
+                border: `1.5px solid ${mainBlue}`,
+                fontSize: 16,
+                marginTop: 4,
+                background: "#fff",
+                color: mainBlue,
+                fontWeight: 600,
+                fontFamily
+              }}
+              required
+              placeholder="e.g. 50"
+            />
+          </label>
           <div style={{ gridColumn: "1 / span 2", marginTop: 10 }}>
             <button
               type="submit"
@@ -370,12 +430,43 @@ export default function AssignAllocationPage() {
           </div>
         </form>
 
+        {/* Search bar for allocations */}
+        <div style={{
+          display: "flex",
+          gap: 14,
+          marginBottom: 18,
+          flexWrap: "wrap",
+          alignItems: "center",
+          background: "#e0e7ff",
+          padding: 14,
+          borderRadius: 12,
+          boxShadow: "0 1px 4px 0 rgba(37,99,235,0.08)"
+        }}>
+          <input
+            type="text"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search by resource, project, or date"
+            style={{
+              padding: 10,
+              borderRadius: 8,
+              border: `1.5px solid ${mainBlue}`,
+              fontSize: 15,
+              width: 260,
+              background: "#fff",
+              color: mainBlue,
+              fontWeight: 600,
+              fontFamily
+            }}
+          />
+        </div>
+
         {/* Allocations Table */}
-        <div style={{ width: "100%" }}> {/* REMOVE maxWidth */}
+        <div style={{ width: "100%" }}>
           <h3 style={{ marginBottom: 16, color: mainBlue }}>Current Allocations</h3>
           <div style={{ overflowX: "auto" }}>
             <table style={{
-              width: "100%", // fill all available width
+              width: "100%",
               borderCollapse: "separate",
               borderSpacing: 0,
               background: mainBlue,
@@ -437,8 +528,7 @@ export default function AssignAllocationPage() {
                       cursor: "pointer",
                       userSelect: "none",
                       background: `linear-gradient(90deg, ${mainBlue} 60%, ${darkBlue} 100%)`,
-                      color: "#fff",
-                      borderTopRightRadius: 18
+                      color: "#fff"
                     }}
                     onClick={() => handleSort("end_date")}
                   >
@@ -446,6 +536,17 @@ export default function AssignAllocationPage() {
                     <span style={{ fontSize: 14 }}>
                       {sortKey === "end_date" ? (sortDir === "asc" ? "▲" : "▼") : ""}
                     </span>
+                  </th>
+                  <th
+                    style={{
+                      ...thStyle,
+                      cursor: "pointer",
+                      userSelect: "none",
+                      background: `linear-gradient(90deg, ${mainBlue} 60%, ${darkBlue} 100%)`,
+                      color: "#fff"
+                    }}
+                  >
+                    % Allocation
                   </th>
                   <th style={{
                     ...thStyle,
@@ -455,14 +556,14 @@ export default function AssignAllocationPage() {
                 </tr>
               </thead>
               <tbody>
-                {sortedAllocations.length === 0 && (
+                {filteredAllocations.length === 0 && (
                   <tr>
-                    <td colSpan={5} style={{ textAlign: "center", color: "#888", padding: 24, background: "#fff" }}>
+                    <td colSpan={6} style={{ textAlign: "center", color: "#888", padding: 24, background: "#fff" }}>
                       No allocations found.
                     </td>
                   </tr>
                 )}
-                {sortedAllocations.map(alloc =>
+                {filteredAllocations.map(alloc =>
                   editId === alloc.id ? (
                     <tr key={alloc.id} style={{ background: "#fff" }}>
                       <td style={tdStyle}>
@@ -546,10 +647,32 @@ export default function AssignAllocationPage() {
                         />
                       </td>
                       <td style={tdStyle}>
+                        <input
+                          type="number"
+                          min={1}
+                          max={100}
+                          value={editPercentage}
+                          onChange={e => setEditPercentage(e.target.value === "" ? "" : Number(e.target.value))}
+                          style={{
+                            width: "100%",
+                            padding: 8,
+                            borderRadius: 4,
+                            border: `1.5px solid ${mainBlue}`,
+                            fontSize: 15,
+                            background: "#fff",
+                            color: mainBlue,
+                            fontWeight: 600,
+                            fontFamily
+                          }}
+                          required
+                          placeholder="%"
+                        />
+                      </td>
+                      <td style={tdStyle}>
                         <div style={{ display: "flex", gap: 8 }}>
                           <button
                             onClick={saveEdit}
-                            disabled={loading || !editResource || !editProject || !editStart || !editEnd}
+                            disabled={loading || !editResource || !editProject || !editStart || !editEnd || editPercentage === ""}
                             style={{
                               background: "#22c55e",
                               color: "#fff",
@@ -607,6 +730,9 @@ export default function AssignAllocationPage() {
                         color: darkBlue,
                         fontWeight: 600
                       }}>{alloc.end_date}</td>
+                      <td style={tdStyle}>
+                        {alloc.allocation_percent ?? ""}
+                      </td>
                       <td style={tdStyle}>
                         <button
                           onClick={() => startEdit(alloc)}

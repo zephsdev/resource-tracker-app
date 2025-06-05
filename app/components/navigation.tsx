@@ -79,6 +79,11 @@ export default function Navigation() {
             {/* <a href="/assign/other" style={getLinkStyle("/assign/other")}>Other Assign</a> */}
           </div>
         </li>
+        <li>
+          <a href="/report" style={getLinkStyle("/report")}>
+            Report
+          </a>
+        </li>
       </ul>
     </nav>
   );

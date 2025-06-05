@@ -109,9 +109,9 @@ export default function ResourcesPage() {
   const filteredResources = resources.filter(r =>
     (!filterDepartment || r.department === filterDepartment) &&
     (!filterRole || r.role === filterRole) &&
-    (r.name.toLowerCase().includes(search.toLowerCase()) ||
-      r.department.toLowerCase().includes(search.toLowerCase()) ||
-      r.role.toLowerCase().includes(search.toLowerCase()))
+    ((r.name || "").toLowerCase().includes(search.toLowerCase()) ||
+      (r.department || "").toLowerCase().includes(search.toLowerCase()) ||
+      (r.role || "").toLowerCase().includes(search.toLowerCase()))
   );
 
   // Sort filtered resources by selected key

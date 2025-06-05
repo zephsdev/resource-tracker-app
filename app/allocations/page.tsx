@@ -21,6 +21,7 @@ interface Allocation {
   end_date: string;
   resources: { name: string };
   projects: { name: string };
+  allocation_percent: number;
 }
 
 interface Resource {
@@ -44,8 +45,7 @@ export default function AllocationsPage() {
 
   // Calendar month state
   const today = new Date();
-  const [month, setMonth] = useState(today.getMonth());
-  const [year, setYear] = useState(today.getFullYear());
+  const [{ year, month }, setYearMonth] = useState({ year: today.getFullYear(), month: today.getMonth() });
   const days = getMonthDays(year, month);
 
   useEffect(() => {
@@ -53,7 +53,7 @@ export default function AllocationsPage() {
       // Fetch allocations
       const { data: allocs, error: allocError } = await supabase
         .from('allocations')
-        .select('id, start_date, end_date, resources(name), projects(name)');
+        .select('id, start_date, end_date, allocation_percent, resources(name), projects(name)');
       if (allocError) {
         setError(allocError.message);
         return;
@@ -64,6 +64,7 @@ export default function AllocationsPage() {
               ...a,
               resources: Array.isArray(a.resources) ? a.resources[0] : a.resources,
               projects: Array.isArray(a.projects) ? a.projects[0] : a.projects,
+              allocation_percent: a.allocation_percent ?? 0, // Provide a default if
             }))
           : []
       );
@@ -120,21 +121,19 @@ export default function AllocationsPage() {
 
   // Month navigation handlers
   function prevMonth() {
-    setMonth(m => {
-      if (m === 0) {
-        setYear(y => y - 1);
-        return 11;
+    setYearMonth(({ year, month }) => {
+      if (month === 0) {
+        return { year: year - 1, month: 11 };
       }
-      return m - 1;
+      return { year, month: month - 1 };
     });
   }
   function nextMonth() {
-    setMonth(m => {
-      if (m === 11) {
-        setYear(y => y + 1);
-        return 0;
+    setYearMonth(({ year, month }) => {
+      if (month === 11) {
+        return { year: year + 1, month: 0 };
       }
-      return m + 1;
+      return { year, month: month + 1 };
     });
   }
 
@@ -144,8 +143,8 @@ export default function AllocationsPage() {
   // Modern calendar styles
   const calendarThStyle: React.CSSProperties = {
     ...themeThStyle,
-    background: "#f8fafc",
-    color: "#222",
+    background: "#f3f4f6", // was #f8fafc, now ~20% darker
+    color: "#18181b",      // was #222, now darker
     fontWeight: 700,
     fontSize: 15,
     borderBottom: "2px solid #e5e7eb",
@@ -161,7 +160,7 @@ export default function AllocationsPage() {
   const calendarTdStyle: React.CSSProperties = {
     ...themeTdStyle,
     fontSize: 15,
-    color: "#222",
+    color: "#18181b",      // was #222, now darker
     background: "#fff",
     border: "none",
     padding: 0,
@@ -193,6 +192,39 @@ export default function AllocationsPage() {
       );
     return resourceSelected && projectSelected;
   });
+
+  // Drag-to-scroll state
+  const tableScrollRef = useRef<HTMLDivElement>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [startX, setStartX] = useState(0);
+  const [startY, setStartY] = useState(0);
+  const [scrollLeft, setScrollLeft] = useState(0);
+  const [scrollTop, setScrollTop] = useState(0);
+
+  // Mouse event handlers for drag-to-scroll (horizontal + vertical)
+  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    setIsDragging(true);
+    setStartX(e.pageX - (tableScrollRef.current?.offsetLeft || 0));
+    setStartY(e.pageY - (tableScrollRef.current?.offsetTop || 0));
+    setScrollLeft(tableScrollRef.current?.scrollLeft || 0);
+    setScrollTop(tableScrollRef.current?.scrollTop || 0);
+  };
+
+  const handleMouseLeave = () => setIsDragging(false);
+  const handleMouseUp = () => setIsDragging(false);
+
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!isDragging) return;
+    e.preventDefault();
+    const x = e.pageX - (tableScrollRef.current?.offsetLeft || 0);
+    const y = e.pageY - (tableScrollRef.current?.offsetTop || 0);
+    const walkX = x - startX;
+    const walkY = y - startY;
+    if (tableScrollRef.current) {
+      tableScrollRef.current.scrollLeft = scrollLeft - walkX;
+      tableScrollRef.current.scrollTop = scrollTop - walkY;
+    }
+  };
 
   return (
     <div style={{
@@ -424,127 +456,188 @@ export default function AllocationsPage() {
           </div>
         </div>
         {error && <p style={{ color: "#ef4444", marginBottom: 16 }}>{error}</p>}
-        <div style={{
-          overflowX: "auto",
-          background: "#f8fafc",
-          borderRadius: 18,
-          boxShadow: "0 2px 16px 0 rgba(37,99,235,0.08)",
-          padding: 24
-        }}>
-          <table style={{
-            borderCollapse: "separate",
-            borderSpacing: 0,
-            width: "100%",
-            minWidth: Math.max(900, days.length * 56),
-            background: "#fff",
+        <div
+          ref={tableScrollRef}
+          style={{
+            overflow: "auto",
+            background: "#f8fafc",
             borderRadius: 18,
-            boxShadow: "0 2px 16px 0 rgba(37,99,235,0.06)",
-            margin: "0 auto",
-            fontFamily,
-            overflow: "hidden"
-          }}>
-            <thead>
-              <tr>
-                <th style={{
-                  ...calendarThStyle,
-                  left: 0,
-                  zIndex: 3,
-                  position: "sticky",
-                  borderTopLeftRadius: 18,
-                  boxShadow: "2px 0 4px -2px #e5e7eb",
-                  background: "#f1f5f9"
-                }}>Resource</th>
-                {days.map(day => (
-                  <th
-                    key={day}
+            boxShadow: "0 2px 16px 0 rgba(37,99,235,0.08)",
+            padding: 24,
+            cursor: isDragging ? "grabbing" : "grab",
+            userSelect: isDragging ? "none" : "auto",
+            maxHeight: "70vh",
+            scrollbarWidth: "none", // Firefox
+            msOverflowStyle: "none" // IE 10+
+          }}
+          onMouseDown={handleMouseDown}
+          onMouseLeave={handleMouseLeave}
+          onMouseUp={handleMouseUp}
+          onMouseMove={handleMouseMove}
+        >
+          {/* Hide scrollbars for Chrome, Safari, Opera */}
+          <style>
+            {`
+              [data-hide-scrollbar]::-webkit-scrollbar {
+                display: none;
+              }
+            `}
+          </style>
+          <div data-hide-scrollbar style={{ width: "100%", height: "100%" }}>
+            <table style={{
+              borderCollapse: "separate",
+              borderSpacing: 0,
+              width: "100%",
+              minWidth: Math.max(900, days.length * 56),
+              background: "#fff",
+              borderRadius: 18,
+              boxShadow: "0 2px 16px 0 rgba(37,99,235,0.06)",
+              margin: "0 auto",
+              fontFamily
+            }}>
+              <thead>
+                <tr>
+                  <th style={{
+                    ...calendarThStyle,
+                    left: 0,
+                    zIndex: 3,
+                    position: "sticky",
+                    borderTopLeftRadius: 18,
+                    boxShadow: "2px 0 4px -2px #e5e7eb",
+                    background: "#f1f5f9"
+                  }}>Resource</th>
+                  {days.map(day => (
+                    <th
+                      key={day}
+                      style={{
+                        ...calendarThStyle,
+                        minWidth: 56,
+                        fontWeight: 500,
+                        fontSize: 13,
+                        background: "#f8fafc"
+                      }}
+                    >
+                      {new Date(day).getDate()}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {filteredResources.map((resource, rIdx) => (
+                  <tr
+                    key={resource.name}
                     style={{
-                      ...calendarThStyle,
-                      minWidth: 56,
-                      fontWeight: 500,
-                      fontSize: 13,
-                      background: "#f8fafc"
+                      background: rIdx % 2 === 0 ? "#e5e7eb" : "#f3f4f6", // was #f9fafb/#fff, now both ~20% darker
+                      transition: "background 0.2s"
                     }}
                   >
-                    {new Date(day).getDate()}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {filteredResources.map((resource, rIdx) => (
-                <tr
-                  key={resource.name}
-                  style={{
-                    background: rIdx % 2 === 0 ? "#f9fafb" : "#fff",
-                    transition: "background 0.2s"
-                  }}
-                >
-                  <td style={{
-                    ...calendarTdStyle,
-                    fontWeight: 700,
-                    background: "#f3f4f6",
-                    position: "sticky",
-                    left: 0,
-                    zIndex: 2,
-                    borderRight: "1px solid #e5e7eb",
-                    boxShadow: "2px 0 4px -2px #e5e7eb"
-                  }}>
-                    <span style={{
-                      display: "inline-block",
-                      padding: "9px 18px",
-                      borderRadius: 8,
-                      background: "#fff",
-                      color: mainBlue,
-                      fontWeight: 700,
-                      fontSize: 16,
-                      letterSpacing: 0.2,
-                      border: "1.5px solid #e0e7eb",
-                      boxShadow: "0 1px 2px 0 rgba(0,0,0,0.03)"
-                    }}>
-                      {resource.name}
-                    </span>
-                  </td>
-                  {days.map(day => {
-                    const projectName = getProjectForResourceDay(resource.name, day);
-                    return (
-                      <td
-                        key={day}
+                    <td
+                      style={{
+                        ...calendarTdStyle,
+                        fontWeight: 700,
+                        background: "#e0e7ef",
+                        position: "sticky",
+                        left: -25,
+                        zIndex: 3,
+                        borderRight: "1px solid #cbd5e1",
+                        boxShadow: "2px 0 4px -2px #cbd5e1",
+                        paddingLeft: 0, // Remove left padding from the sticky cell
+                        textAlign: "left",
+                        verticalAlign: "middle",
+                        minWidth: 178, // Increase minWidth to cover the left edge (160 + 18)
+                        maxWidth: 278, // Increase maxWidth accordingly
+                        width: 178,    // Increase width accordingly
+                        backgroundClip: "padding-box"
+                      }}
+                    >
+                      <div
                         style={{
-                          ...calendarTdStyle,
-                          background: "transparent",
-                          position: "relative"
+                          fontWeight: 700,
+                          fontSize: 16,
+                          color: mainBlue,
+                          letterSpacing: 0.2,
+                          width: "100%",
+                          whiteSpace: "nowrap",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          paddingLeft: 18 // Move padding to the inner div for text alignment
                         }}
                       >
-                        {projectName && (
-                          <span style={{
-                            display: "inline-block",
-                            background: "linear-gradient(90deg, #e0e7ff 0%, #c7d2fe 100%)",
-                            color: "#3730a3",
-                            borderRadius: 16,
-                            boxShadow: "0 4px 16px 0 rgba(99,102,241,0.10), 0 1.5px 4px 0 rgba(37,99,235,0.06)",
-                            padding: "10px 20px",
-                            fontWeight: 700,
-                            fontSize: 15,
-                            border: "1.5px solid #c7d2fe",
-                            maxWidth: 220,
-                            minWidth: 80,
-                            overflow: "visible",
-                            textOverflow: "clip",
-                            whiteSpace: "normal",
-                            wordBreak: "break-word",
-                            transition: "box-shadow 0.2s, background 0.2s",
-                            filter: "drop-shadow(0 2px 8px rgba(99,102,241,0.08))"
-                          }}>
-                            {projectName}
-                          </span>
-                        )}
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                        {resource.name}
+                      </div>
+                    </td>
+                    {days.map(day => {
+                      // Get all allocations for this resource and day (can be multiple)
+                      const cellAllocations = allocations
+                        .filter(a =>
+                          a.resources?.name === resource.name &&
+                          a.start_date <= day &&
+                          a.end_date >= day &&
+                          (selectedProjects.length === 0 || selectedProjects.includes(a.projects?.name))
+                        );
+
+                      // Sum the allocation_percent for this cell
+                      const totalPercent = cellAllocations.reduce(
+                        (sum, a) => sum + (a.allocation_percent ?? 0),
+                        0
+                      );
+
+                      return (
+                        <td
+                          key={day}
+                          style={{
+                            ...calendarTdStyle,
+                            background: "transparent",
+                            position: "relative"
+                          }}
+                        >
+                          {cellAllocations.length > 0 && (
+                            <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                              {cellAllocations.map((a, idx) => (
+                                <span
+                                  key={idx}
+                                  style={{
+                                    display: "inline-block",
+                                    background:
+                                      totalPercent > 100
+                                        ? "linear-gradient(90deg, #fee2e2 0%, #fecaca 100%)" // light red
+                                        : "linear-gradient(90deg, #e0e7ff 0%, #c7d2fe 100%)",
+                                    color: totalPercent > 100 ? "#b91c1c" : "#3730a3",
+                                    borderRadius: 16,
+                                    boxShadow:
+                                      totalPercent > 100
+                                        ? "0 4px 16px 0 rgba(239,68,68,0.10), 0 1.5px 4px 0 rgba(239,68,68,0.06)"
+                                        : "0 4px 16px 0 rgba(99,102,241,0.10), 0 1.5px 4px 0 rgba(37,99,235,0.06)",
+                                    padding: "10px 20px",
+                                    fontWeight: 700,
+                                    fontSize: 15,
+                                    border: totalPercent > 100 ? "1.5px solid #fecaca" : "1.5px solid #a5b4fc",
+                                    maxWidth: 220,
+                                    minWidth: 80,
+                                    overflow: "visible",
+                                    textOverflow: "clip",
+                                    whiteSpace: "normal",
+                                    wordBreak: "break-word",
+                                    transition: "box-shadow 0.2s, background 0.2s",
+                                    filter: totalPercent > 100
+                                      ? "drop-shadow(0 2px 8px rgba(239,68,68,0.08))"
+                                      : "drop-shadow(0 2px 8px rgba(99,102,241,0.08))"
+                                  }}
+                                >
+                                  {a.projects?.name}
+                                  {typeof a.allocation_percent === "number" ? ` (${a.allocation_percent}%)` : ""}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       </main>
     </div>
